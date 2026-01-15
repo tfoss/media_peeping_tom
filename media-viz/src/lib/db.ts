@@ -86,6 +86,7 @@ export async function getTopByDimension(
   dimension: Dimension,
   timeRange: TimeRange,
   limit: number = 10,
+  mediaType?: MediaType,
 ): Promise<TopNResult[]> {
   if (!conn) throw new Error("Database not initialized");
 
@@ -101,6 +102,8 @@ export async function getTopByDimension(
   }
   const cutoffStr = cutoffDate.toISOString();
 
+  const mediaTypeFilter = mediaType ? `AND media_type = '${mediaType}'` : "";
+
   const result = await conn.query(`
 		SELECT
 			${dimension} as label,
@@ -109,6 +112,7 @@ export async function getTopByDimension(
 		WHERE session_start >= '${cutoffStr}'
 		  AND ${dimension} IS NOT NULL
 		  AND ${dimension} != ''
+		  ${mediaTypeFilter}
 		GROUP BY ${dimension}
 		ORDER BY count DESC
 		LIMIT ${limit}

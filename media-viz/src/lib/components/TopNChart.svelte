@@ -6,9 +6,12 @@
 
     export let dbReady: boolean = false;
 
-    let chartContainer: HTMLDivElement;
-    let chart: echarts.ECharts | null = null;
-    let data: TopNResult[] = [];
+    let videoChartContainer: HTMLDivElement;
+    let musicChartContainer: HTMLDivElement;
+    let videoChart: echarts.ECharts | null = null;
+    let musicChart: echarts.ECharts | null = null;
+    let videoData: TopNResult[] = [];
+    let musicData: TopNResult[] = [];
     let loading = true;
     let error: string | null = null;
 
@@ -33,46 +36,61 @@
         loadData();
     }
 
-    $: if (data.length > 0 && chartContainer) {
-        // Initialize chart if not already done, then update
-        if (!chart) {
-            console.log("[TopN] Initializing chart...");
-            chart = echarts.init(chartContainer);
-            window.addEventListener("resize", handleResize);
-        }
-        console.log("[TopN] Updating chart with data:", data.length);
-        updateChart();
+    $: if (videoChartContainer && !videoChart) {
+        videoChart = echarts.init(videoChartContainer);
+    }
+
+    $: if (musicChartContainer && !musicChart) {
+        musicChart = echarts.init(musicChartContainer);
+    }
+
+    $: if (videoData.length > 0 && videoChart) {
+        updateChart(videoChart, videoData, "#667eea", "#764ba2");
+    }
+
+    $: if (musicData.length > 0 && musicChart) {
+        updateChart(musicChart, musicData, "#009E73", "#56B4E9");
     }
 
     onMount(() => {
-        // Chart will be initialized reactively when chartContainer and data are ready
+        window.addEventListener("resize", handleResize);
     });
 
     onDestroy(() => {
-        if (chart) {
-            chart.dispose();
-        }
+        if (videoChart) videoChart.dispose();
+        if (musicChart) musicChart.dispose();
         window.removeEventListener("resize", handleResize);
     });
 
     function handleResize() {
-        chart?.resize();
+        videoChart?.resize();
+        musicChart?.resize();
     }
 
     async function loadData() {
         try {
             loading = true;
             error = null;
-            console.log(
-                `[TopN] Loading ${selectedDimension} for ${selectedTimeRange}...`,
-            );
-            data = await getTopByDimension(
-                selectedDimension,
-                selectedTimeRange,
-                10,
-            );
-            console.log(`[TopN] Got ${data.length} results:`, data);
-            if (data.length === 0) {
+
+            const [video, music] = await Promise.all([
+                getTopByDimension(
+                    selectedDimension,
+                    selectedTimeRange,
+                    10,
+                    "Video",
+                ),
+                getTopByDimension(
+                    selectedDimension,
+                    selectedTimeRange,
+                    10,
+                    "Music",
+                ),
+            ]);
+
+            videoData = video;
+            musicData = music;
+
+            if (videoData.length === 0 && musicData.length === 0) {
                 error = "No data for selected filters";
             }
         } catch (e) {
@@ -83,8 +101,13 @@
         }
     }
 
-    function updateChart() {
-        if (!chart) return;
+    function updateChart(
+        chart: echarts.ECharts,
+        data: TopNResult[],
+        color1: string,
+        color2: string,
+    ) {
+        if (!chart || data.length === 0) return;
 
         const option: echarts.EChartsOption = {
             animation: false,
@@ -134,8 +157,8 @@
                     data: data.map((d) => d.count).reverse(),
                     itemStyle: {
                         color: new echarts.graphic.LinearGradient(0, 0, 1, 0, [
-                            { offset: 0, color: "#667eea" },
-                            { offset: 1, color: "#764ba2" },
+                            { offset: 0, color: color1 },
+                            { offset: 1, color: color2 },
                         ]),
                         borderRadius: [0, 4, 4, 0],
                     },
@@ -147,8 +170,8 @@
                                 1,
                                 0,
                                 [
-                                    { offset: 0, color: "#764ba2" },
-                                    { offset: 1, color: "#f093fb" },
+                                    { offset: 0, color: color2 },
+                                    { offset: 1, color: color1 },
                                 ],
                             ),
                         },
@@ -196,12 +219,31 @@
     {#if error}
         <div class="error">{error}</div>
     {/if}
-    <div
-        class="chart-container"
-        bind:this={chartContainer}
-        class:loading
-        class:hidden={!!error}
-    ></div>
+
+    <div class="charts-row" class:loading class:hidden={!!error}>
+        <div class="chart-section">
+            <h4>Video</h4>
+            <div
+                class="chart-container"
+                bind:this={videoChartContainer}
+                class:empty={videoData.length === 0}
+            ></div>
+            {#if videoData.length === 0 && !loading}
+                <div class="empty-message">No video data</div>
+            {/if}
+        </div>
+        <div class="chart-section">
+            <h4>Music</h4>
+            <div
+                class="chart-container"
+                bind:this={musicChartContainer}
+                class:empty={musicData.length === 0}
+            ></div>
+            {#if musicData.length === 0 && !loading}
+                <div class="empty-message">No music data</div>
+            {/if}
+        </div>
+    </div>
 </div>
 
 <style>
@@ -230,6 +272,13 @@
         font-size: 1.1rem;
     }
 
+    h4 {
+        margin: 0 0 0.5rem 0;
+        color: #555;
+        font-size: 0.95rem;
+        font-weight: 500;
+    }
+
     .controls {
         display: flex;
         gap: 0.5rem;
@@ -254,19 +303,31 @@
         border-color: #667eea;
     }
 
-    .loading,
-    .error {
-        color: #888;
-        text-align: center;
-        padding: 2rem;
-        flex: 1;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
-
     .error {
         color: #d32f2f;
+        text-align: center;
+        padding: 2rem;
+    }
+
+    .charts-row {
+        display: flex;
+        gap: 1rem;
+        flex: 1;
+    }
+
+    .charts-row.loading {
+        opacity: 0.5;
+    }
+
+    .charts-row.hidden {
+        display: none;
+    }
+
+    .chart-section {
+        flex: 1;
+        display: flex;
+        flex-direction: column;
+        min-width: 0;
     }
 
     .chart-container {
@@ -274,11 +335,18 @@
         min-height: 300px;
     }
 
-    .chart-container.loading {
-        opacity: 0.5;
+    .chart-container.empty {
+        display: none;
     }
 
-    .chart-container.hidden {
-        display: none;
+    .empty-message {
+        flex: 1;
+        min-height: 300px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: #888;
+        background: #f9f9f9;
+        border-radius: 4px;
     }
 </style>
