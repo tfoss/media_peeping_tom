@@ -136,3 +136,72 @@ export async function getTimeRange(): Promise<{ min: Date; max: Date }> {
     max: new Date(row.max_date as number),
   };
 }
+
+export interface TimelineSession {
+  device_name: string;
+  title: string | null;
+  artist: string | null;
+  album: string | null;
+  series_name: string | null;
+  media_type: string;
+  app: string | null;
+  session_start: Date;
+  session_end: Date;
+  watch_time_seconds: number | null;
+  completion_pct: number | null;
+}
+
+export async function getTimelineSessions(
+  startDate: Date,
+  endDate: Date,
+): Promise<TimelineSession[]> {
+  if (!conn) throw new Error("Database not initialized");
+
+  const startStr = startDate.toISOString();
+  const endStr = endDate.toISOString();
+
+  const result = await conn.query(`
+    SELECT
+      device_name,
+      title,
+      artist,
+      album,
+      series_name,
+      media_type,
+      app,
+      session_start,
+      session_end,
+      watch_time_seconds,
+      completion_pct
+    FROM sessions
+    WHERE session_start >= '${startStr}'
+      AND session_start <= '${endStr}'
+      AND device_name IS NOT NULL
+    ORDER BY device_name, session_start
+  `);
+
+  return result.toArray().map((row: Record<string, unknown>) => ({
+    device_name: row.device_name as string,
+    title: row.title as string | null,
+    artist: row.artist as string | null,
+    album: row.album as string | null,
+    series_name: row.series_name as string | null,
+    media_type: row.media_type as string,
+    app: row.app as string | null,
+    session_start: timestampToLocal(row.session_start as number),
+    session_end: timestampToLocal(row.session_end as number),
+    watch_time_seconds: row.watch_time_seconds as number | null,
+    completion_pct: row.completion_pct as number | null,
+  }));
+}
+
+// The parquet timestamps are in local time (EST) but stored without timezone info.
+// DuckDB returns them as microseconds since epoch (UTC interpretation).
+// We need to adjust by adding the timezone offset to get correct local time display.
+function timestampToLocal(timestamp: number): Date {
+  const date = new Date(timestamp);
+  // Get the timezone offset in minutes and convert to milliseconds
+  const offsetMs = date.getTimezoneOffset() * 60 * 1000;
+  // Add the offset to correct for the double-conversion
+  return new Date(date.getTime() + offsetMs);
+}

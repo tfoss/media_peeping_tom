@@ -3,6 +3,7 @@
     import { initDB } from "$lib/db";
     import RecentSessions from "$lib/components/RecentSessions.svelte";
     import TopNChart from "$lib/components/TopNChart.svelte";
+    import Timeline from "$lib/components/Timeline.svelte";
 
     let dbReady = false;
     let initError: string | null = null;
@@ -42,13 +43,17 @@
         </div>
     {:else}
         <main>
-            <section class="recent-sessions-grid">
-                <RecentSessions mediaType="Music" {dbReady} />
-                <RecentSessions mediaType="Video" {dbReady} />
+            <section class="timeline-section">
+                <Timeline {dbReady} />
             </section>
 
             <section class="chart-section">
                 <TopNChart {dbReady} />
+            </section>
+
+            <section class="recent-sessions-grid">
+                <RecentSessions mediaType="Music" {dbReady} />
+                <RecentSessions mediaType="Video" {dbReady} />
             </section>
         </main>
     {/if}
