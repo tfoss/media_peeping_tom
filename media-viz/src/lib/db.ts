@@ -82,11 +82,14 @@ export async function getRecentSessions(
   })) as MediaSession[];
 }
 
+export type CountBy = "sessions" | "time";
+
 export async function getTopByDimension(
   dimension: Dimension,
   timeRange: TimeRange,
   limit: number = 10,
   mediaType?: MediaType,
+  countBy: CountBy = "sessions",
 ): Promise<TopNResult[]> {
   if (!conn) throw new Error("Database not initialized");
 
@@ -103,11 +106,15 @@ export async function getTopByDimension(
   const cutoffStr = cutoffDate.toISOString();
 
   const mediaTypeFilter = mediaType ? `AND media_type = '${mediaType}'` : "";
+  const aggregation =
+    countBy === "sessions"
+      ? "COUNT(*)"
+      : "COALESCE(SUM(watch_time_seconds), 0)";
 
   const result = await conn.query(`
 		SELECT
 			${dimension} as label,
-			COUNT(*) as count
+			${aggregation} as count
 		FROM sessions
 		WHERE session_start >= '${cutoffStr}'
 		  AND ${dimension} IS NOT NULL

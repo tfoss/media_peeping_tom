@@ -2,7 +2,7 @@
     import { onMount, onDestroy, tick } from "svelte";
     import * as echarts from "echarts";
     import type { TopNResult, Dimension, TimeRange } from "$lib/types";
-    import { getTopByDimension } from "$lib/db";
+    import { getTopByDimension, type CountBy } from "$lib/db";
 
     export let dbReady: boolean = false;
 
@@ -17,6 +17,7 @@
 
     let selectedDimension: Dimension = "artist";
     let selectedTimeRange: TimeRange = "week";
+    let selectedCountBy: CountBy = "sessions";
 
     const dimensions: { value: Dimension; label: string }[] = [
         { value: "artist", label: "Artist" },
@@ -30,6 +31,11 @@
         { value: "day", label: "Last 24 Hours" },
         { value: "week", label: "Last Week" },
         { value: "month", label: "Last Month" },
+    ];
+
+    const countByOptions: { value: CountBy; label: string }[] = [
+        { value: "sessions", label: "Sessions" },
+        { value: "time", label: "Total Time" },
     ];
 
     $: if (dbReady) {
@@ -62,12 +68,14 @@
                     selectedTimeRange,
                     10,
                     "Video",
+                    selectedCountBy,
                 ),
                 getTopByDimension(
                     selectedDimension,
                     selectedTimeRange,
                     10,
                     "Music",
+                    selectedCountBy,
                 ),
             ]);
 
@@ -120,6 +128,11 @@
                 axisPointer: {
                     type: "shadow",
                 },
+                formatter: (params: unknown) => {
+                    const p = (params as { name: string; value: number }[])[0];
+                    if (!p) return "";
+                    return `${p.name}: ${formatValue(p.value)}`;
+                },
             },
             grid: {
                 left: "3%",
@@ -132,6 +145,15 @@
                 type: "value",
                 axisLabel: {
                     color: "#333",
+                    formatter: (value: number) => {
+                        if (selectedCountBy === "time") {
+                            const hours = Math.floor(value / 3600);
+                            if (hours > 0) return `${hours}h`;
+                            const mins = Math.floor(value / 60);
+                            return `${mins}m`;
+                        }
+                        return String(value);
+                    },
                 },
                 axisLine: {
                     lineStyle: { color: "#ccc" },
@@ -197,6 +219,23 @@
             .value as TimeRange;
         loadData();
     }
+
+    function handleCountByChange(event: Event) {
+        selectedCountBy = (event.target as HTMLSelectElement).value as CountBy;
+        loadData();
+    }
+
+    function formatValue(value: number): string {
+        if (selectedCountBy === "time") {
+            const hours = Math.floor(value / 3600);
+            const mins = Math.floor((value % 3600) / 60);
+            if (hours > 0) {
+                return `${hours}h ${mins}m`;
+            }
+            return `${mins}m`;
+        }
+        return String(value);
+    }
 </script>
 
 <div class="top-n-chart">
@@ -214,6 +253,11 @@
             <select value={selectedTimeRange} on:change={handleTimeRangeChange}>
                 {#each timeRanges as range}
                     <option value={range.value}>{range.label}</option>
+                {/each}
+            </select>
+            <select value={selectedCountBy} on:change={handleCountByChange}>
+                {#each countByOptions as opt}
+                    <option value={opt.value}>{opt.label}</option>
                 {/each}
             </select>
         </div>
