@@ -18,11 +18,21 @@
     let offsetDays = 0;
 
     const timeRangeOptions = [
+        { value: "8hr", label: "8 Hours" },
+        { value: "today", label: "Today" },
         { value: "day", label: "24 Hours" },
         { value: "week", label: "Week" },
         { value: "month", label: "Month" },
+        { value: "custom", label: "Custom" },
     ];
     let selectedTimeRange = "day";
+
+    // Custom date range inputs
+    let customStartDate = "";
+    let customStartTime = "00:00";
+    let customEndDate = "";
+    let customEndTime = "23:59";
+    let showCustomControls = false;
 
     $: if (dbReady) {
         loadData();
@@ -32,11 +42,27 @@
     $: canGoForward = offsetDays > 0;
 
     function updateDateRange() {
-        const now = new Date();
-        // Apply offset
-        endDate = new Date(now.getTime() - offsetDays * 24 * 60 * 60 * 1000);
+        if (selectedTimeRange === "custom") {
+            // Use custom date inputs
+            if (customStartDate && customEndDate) {
+                startDate = new Date(`${customStartDate}T${customStartTime}`);
+                endDate = new Date(`${customEndDate}T${customEndTime}`);
+            }
+            return;
+        }
 
-        if (selectedTimeRange === "day") {
+        const now = new Date();
+        // Apply offset based on time range unit
+        const offsetMs = offsetDays * 24 * 60 * 60 * 1000;
+        endDate = new Date(now.getTime() - offsetMs);
+
+        if (selectedTimeRange === "8hr") {
+            startDate = new Date(endDate.getTime() - 8 * 60 * 60 * 1000);
+        } else if (selectedTimeRange === "today") {
+            // Start from midnight today (adjusted by offset)
+            startDate = new Date(endDate);
+            startDate.setHours(0, 0, 0, 0);
+        } else if (selectedTimeRange === "day") {
             startDate = new Date(endDate.getTime() - 24 * 60 * 60 * 1000);
         } else if (selectedTimeRange === "week") {
             startDate = new Date(endDate.getTime() - 7 * 24 * 60 * 60 * 1000);
@@ -45,25 +71,31 @@
         }
     }
 
-    function goBack() {
-        if (selectedTimeRange === "day") {
-            offsetDays += 1;
-        } else if (selectedTimeRange === "week") {
-            offsetDays += 7;
-        } else {
-            offsetDays += 30;
+    function getStepDays(): number {
+        switch (selectedTimeRange) {
+            case "8hr":
+                return 1 / 3; // ~8 hours
+            case "today":
+            case "day":
+                return 1;
+            case "week":
+                return 7;
+            case "month":
+                return 30;
+            default:
+                return 1;
         }
+    }
+
+    function goBack() {
+        if (selectedTimeRange === "custom") return;
+        offsetDays += getStepDays();
         loadData();
     }
 
     function goForward() {
-        if (selectedTimeRange === "day") {
-            offsetDays = Math.max(0, offsetDays - 1);
-        } else if (selectedTimeRange === "week") {
-            offsetDays = Math.max(0, offsetDays - 7);
-        } else {
-            offsetDays = Math.max(0, offsetDays - 30);
-        }
+        if (selectedTimeRange === "custom") return;
+        offsetDays = Math.max(0, offsetDays - getStepDays());
         loadData();
     }
 
@@ -99,7 +131,27 @@
 
     function handleTimeRangeChange(event: Event) {
         selectedTimeRange = (event.target as HTMLSelectElement).value;
-        loadData();
+        offsetDays = 0;
+
+        if (selectedTimeRange === "custom") {
+            showCustomControls = true;
+            // Initialize with current day as default
+            const now = new Date();
+            const todayStr = now.toISOString().split("T")[0];
+            customStartDate = todayStr;
+            customEndDate = todayStr;
+            customStartTime = "00:00";
+            customEndTime = "23:59";
+        } else {
+            showCustomControls = false;
+            loadData();
+        }
+    }
+
+    function applyCustomRange() {
+        if (customStartDate && customEndDate) {
+            loadData();
+        }
     }
 
     function formatDuration(seconds: number | null): string {
@@ -226,32 +278,48 @@
             )
             .style("pointer-events", "none");
 
-        // X Axis
+        // X Axis - determine tick interval based on time range
+        function getTickInterval() {
+            switch (selectedTimeRange) {
+                case "8hr":
+                    return d3.timeHour.every(1);
+                case "today":
+                case "day":
+                    return d3.timeHour.every(2);
+                case "week":
+                    return d3.timeHour.every(12);
+                case "month":
+                    return d3.timeHour.every(24);
+                case "custom":
+                    // Calculate based on duration
+                    const durationHours =
+                        (endDate.getTime() - startDate.getTime()) /
+                        (1000 * 60 * 60);
+                    if (durationHours <= 12) return d3.timeHour.every(1);
+                    if (durationHours <= 48) return d3.timeHour.every(2);
+                    if (durationHours <= 168) return d3.timeHour.every(12);
+                    return d3.timeHour.every(24);
+                default:
+                    return d3.timeHour.every(2);
+            }
+        }
+
+        const tickInterval = getTickInterval();
+
         const xAxis = d3
             .axisTop(xScale)
-            .ticks(
-                d3.timeHour.every(
-                    selectedTimeRange === "day"
-                        ? 2
-                        : selectedTimeRange === "week"
-                          ? 12
-                          : 24,
-                ),
-            )
+            .ticks(tickInterval)
             .tickFormat(() => ""); // We'll add custom labels
 
         const xAxisGroup = svg.append("g").attr("class", "x-axis").call(xAxis);
 
-        // Add multiline tick labels
-        const tickValues = xScale.ticks(
-            d3.timeHour.every(
-                selectedTimeRange === "day"
-                    ? 2
-                    : selectedTimeRange === "week"
-                      ? 12
-                      : 24,
-            ),
-        );
+        // Determine if we should show single-line or multi-line labels
+        const isShortRange =
+            selectedTimeRange === "8hr" ||
+            selectedTimeRange === "today" ||
+            selectedTimeRange === "day" ||
+            (selectedTimeRange === "custom" &&
+                endDate.getTime() - startDate.getTime() <= 48 * 60 * 60 * 1000);
 
         xAxisGroup.selectAll(".tick").each(function (d) {
             const tick = d3.select(this);
@@ -259,7 +327,7 @@
 
             tick.select("text").remove(); // Remove empty text
 
-            if (selectedTimeRange === "day") {
+            if (isShortRange) {
                 const hour = date.getHours();
                 if (hour === 0) {
                     // Midnight - show day above time
@@ -520,40 +588,56 @@
     <div class="header">
         <h3>
             Activity Timeline <span class="date-display"
-                >({#if selectedTimeRange === "day"}{endDate.toLocaleDateString(
+                >({#if selectedTimeRange === "8hr" || selectedTimeRange === "today" || selectedTimeRange === "day"}{endDate.toLocaleDateString(
                         "en-US",
                         { weekday: "short", month: "short", day: "numeric" },
-                    )}{:else}{startDate.toLocaleDateString("en-US", {
+                    )}{:else if selectedTimeRange === "custom"}{startDate.toLocaleDateString(
+                        "en-US",
+                        {
+                            month: "short",
+                            day: "numeric",
+                        },
+                    )}
+                    {customStartTime} – {endDate.toLocaleDateString("en-US", {
                         month: "short",
                         day: "numeric",
-                    })} – {endDate.toLocaleDateString("en-US", {
+                    })}
+                    {customEndTime}{:else}{startDate.toLocaleDateString(
+                        "en-US",
+                        {
+                            month: "short",
+                            day: "numeric",
+                        },
+                    )} – {endDate.toLocaleDateString("en-US", {
                         month: "short",
                         day: "numeric",
                     })}{/if})</span
             >
         </h3>
         <div class="controls">
-            <div class="nav-buttons">
-                <button class="nav-btn" on:click={goBack} title="Go back">
-                    ←
-                </button>
-                <button
-                    class="nav-btn now-btn"
-                    on:click={goToNow}
-                    disabled={!canGoForward}
-                    title="Go to now"
-                >
-                    Now
-                </button>
-                <button
-                    class="nav-btn"
-                    on:click={goForward}
-                    disabled={!canGoForward}
-                    title="Go forward"
-                >
-                    →
-                </button>
-            </div>
+            {#if selectedTimeRange !== "custom"}
+                <div class="nav-buttons">
+                    <button class="nav-btn" on:click={goBack} title="Go back">
+                        ←
+                    </button>
+                    <button
+                        class="nav-btn now-btn"
+                        on:click={goToNow}
+                        disabled={!canGoForward}
+                        title="Go to now"
+                    >
+                        Now
+                    </button>
+                    <button
+                        class="nav-btn"
+                        on:click={goForward}
+                        disabled={!canGoForward}
+                        title="Go forward"
+                    >
+                        →
+                    </button>
+                </div>
+            {/if}
             <select value={selectedTimeRange} on:change={handleTimeRangeChange}>
                 {#each timeRangeOptions as option}
                     <option value={option.value}>{option.label}</option>
@@ -561,6 +645,26 @@
             </select>
         </div>
     </div>
+
+    {#if showCustomControls}
+        <div class="custom-range">
+            <div class="custom-row">
+                <label>
+                    Start:
+                    <input type="date" bind:value={customStartDate} />
+                    <input type="time" bind:value={customStartTime} />
+                </label>
+                <label>
+                    End:
+                    <input type="date" bind:value={customEndDate} />
+                    <input type="time" bind:value={customEndTime} />
+                </label>
+                <button class="apply-btn" on:click={applyCustomRange}
+                    >Apply</button
+                >
+            </div>
+        </div>
+    {/if}
 
     {#if loading}
         <div class="loading">Loading...</div>
@@ -636,6 +740,51 @@
     .date-display {
         font-weight: 400;
         color: #666;
+    }
+
+    .custom-range {
+        margin-bottom: 1rem;
+        padding: 0.75rem;
+        background: #f9f9f9;
+        border-radius: 4px;
+    }
+
+    .custom-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 1rem;
+        align-items: center;
+    }
+
+    .custom-row label {
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-size: 0.9rem;
+        color: #555;
+    }
+
+    .custom-row input[type="date"],
+    .custom-row input[type="time"] {
+        padding: 0.4rem 0.5rem;
+        border: 1px solid #ccc;
+        border-radius: 4px;
+        font-size: 0.85rem;
+    }
+
+    .apply-btn {
+        background: #667eea;
+        color: #fff;
+        border: none;
+        border-radius: 4px;
+        padding: 0.5rem 1rem;
+        font-size: 0.9rem;
+        cursor: pointer;
+        transition: background 0.15s ease;
+    }
+
+    .apply-btn:hover {
+        background: #5a6fd6;
     }
 
     select {
