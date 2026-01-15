@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onMount, onDestroy } from "svelte";
+    import { onMount, onDestroy, tick } from "svelte";
     import * as echarts from "echarts";
     import type { TopNResult, Dimension, TimeRange } from "$lib/types";
     import { getTopByDimension } from "$lib/db";
@@ -34,22 +34,6 @@
 
     $: if (dbReady) {
         loadData();
-    }
-
-    $: if (videoChartContainer && !videoChart) {
-        videoChart = echarts.init(videoChartContainer);
-    }
-
-    $: if (musicChartContainer && !musicChart) {
-        musicChart = echarts.init(musicChartContainer);
-    }
-
-    $: if (videoData.length > 0 && videoChart) {
-        updateChart(videoChart, videoData, "#667eea", "#764ba2");
-    }
-
-    $: if (musicData.length > 0 && musicChart) {
-        updateChart(musicChart, musicData, "#009E73", "#56B4E9");
     }
 
     onMount(() => {
@@ -93,11 +77,30 @@
             if (videoData.length === 0 && musicData.length === 0) {
                 error = "No data for selected filters";
             }
+
+            loading = false;
+            await tick();
+            renderCharts();
         } catch (e) {
             console.error("[TopN] Error:", e);
             error = e instanceof Error ? e.message : "Failed to load data";
-        } finally {
             loading = false;
+        }
+    }
+
+    function renderCharts() {
+        if (videoData.length > 0 && videoChartContainer) {
+            if (!videoChart) {
+                videoChart = echarts.init(videoChartContainer);
+            }
+            updateChart(videoChart, videoData, "#667eea", "#764ba2");
+        }
+
+        if (musicData.length > 0 && musicChartContainer) {
+            if (!musicChart) {
+                musicChart = echarts.init(musicChartContainer);
+            }
+            updateChart(musicChart, musicData, "#009E73", "#56B4E9");
         }
     }
 
@@ -223,25 +226,29 @@
     <div class="charts-row" class:loading class:hidden={!!error}>
         <div class="chart-section">
             <h4>Video</h4>
-            <div
-                class="chart-container"
-                bind:this={videoChartContainer}
-                class:empty={videoData.length === 0}
-            ></div>
-            {#if videoData.length === 0 && !loading}
-                <div class="empty-message">No video data</div>
-            {/if}
+            <div class="chart-wrapper">
+                <div
+                    class="chart-container"
+                    bind:this={videoChartContainer}
+                    class:hidden={videoData.length === 0 && !loading}
+                ></div>
+                {#if videoData.length === 0 && !loading}
+                    <div class="empty-message">No video data</div>
+                {/if}
+            </div>
         </div>
         <div class="chart-section">
             <h4>Music</h4>
-            <div
-                class="chart-container"
-                bind:this={musicChartContainer}
-                class:empty={musicData.length === 0}
-            ></div>
-            {#if musicData.length === 0 && !loading}
-                <div class="empty-message">No music data</div>
-            {/if}
+            <div class="chart-wrapper">
+                <div
+                    class="chart-container"
+                    bind:this={musicChartContainer}
+                    class:hidden={musicData.length === 0 && !loading}
+                ></div>
+                {#if musicData.length === 0 && !loading}
+                    <div class="empty-message">No music data</div>
+                {/if}
+            </div>
         </div>
     </div>
 </div>
@@ -330,17 +337,25 @@
         min-width: 0;
     }
 
-    .chart-container {
+    .chart-wrapper {
         flex: 1;
+        min-height: 300px;
+        position: relative;
+    }
+
+    .chart-container {
+        width: 100%;
+        height: 100%;
         min-height: 300px;
     }
 
-    .chart-container.empty {
+    .chart-container.hidden {
         display: none;
     }
 
     .empty-message {
-        flex: 1;
+        width: 100%;
+        height: 100%;
         min-height: 300px;
         display: flex;
         align-items: center;
